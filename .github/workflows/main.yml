@@ -12,24 +12,29 @@ on:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Package Application
-        uses: JackMcKew/pyinstaller-action-windows@main
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          path: ./
+          python-version: "3.10.11"
 
-      - name: List files (Debugging)
-        run: ls -R
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+
+      - name: Build executable with PyInstaller
+        run: |
+          pyinstaller --onefile --name ptp-batch-installer main.py
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          files: dist/dist/windows/ptp-batch-installer.exe
+          files: dist/ptp-batch-installer.exe
           tag_name: ${{ github.event.inputs.version }}
           name: Release ${{ github.event.inputs.version }}
           draft: false
