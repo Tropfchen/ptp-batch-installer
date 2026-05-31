@@ -214,6 +214,23 @@ def append_livery_config_to_aircraft_cfg(src_cfg_txt: str, output_ac_cfg: Path, 
             f.write("\n\n" + new_content)
 
 
+def livery_already_installed(output_ac_cfg: Path, livery: AircraftLivery) -> bool:
+    if not output_ac_cfg.exists():
+        return False
+
+    config = configparser.ConfigParser(comment_prefixes=COMMENT_PREFIXES)
+    config.read(output_ac_cfg)
+
+    for section in config.sections():
+        if (
+            section.startswith("fltsim.")
+            and config[section].get("atc_id") == livery.atc_id
+            and config[section].get("title") == livery.title
+        ):
+            return True
+    return False
+
+
 def install_livery_config_to_aircraft(
     src_folder: Path, game_path: Path, models: list[AircraftConfig], dry_run: bool
 ) -> Path:
@@ -222,8 +239,15 @@ def install_livery_config_to_aircraft(
     model = find_matching_model(livery, models)
 
     sim_airplane_dir = game_path / AIRPLANES_DIR / model.relative_path
+    output_ac_cfg = sim_airplane_dir / "aircraft.cfg"
+
+    # Check if already installed
+    if livery_already_installed(output_ac_cfg, livery):
+        print(f"Livery already installed: {livery.title} ({livery.atc_id})\n")
+        return sim_airplane_dir
+
     move_panel_file(src_folder, game_path, livery, dry_run)
-    append_livery_config_to_aircraft_cfg(src_cfg_txt, sim_airplane_dir / "aircraft.cfg", dry_run)
+    append_livery_config_to_aircraft_cfg(src_cfg_txt, output_ac_cfg, dry_run)
 
     return sim_airplane_dir
 
@@ -256,16 +280,16 @@ def run_ptp(ptp, file_path: Path):
 
 
 def _find_ptp():
-    p = Path("./ptp_converter.exe")  # always prefer local, in case of breaking OC3 upgrades
+    p = Path("./ptp-batch-installer.exe")  # always prefer local, in case of breaking OC3 upgrades
     if p.exists():
         return p.resolve()
-    p = Path(os.getenv("APPDATA")) / "PMDG/PMDG Operations Center/ptp_converter.exe"  # type: ignore
+    p = Path(os.getenv("APPDATA")) / "PMDG/PMDG Operations Center/ptp-batch-installer.exe"  # type: ignore
     if p.exists():
         return p.resolve()
     return None
 
 
-def parse_args(argv: list[str]) -> tuple[Path, list[Path], bool]:
+def parse_args(argv: list[str]) -> tuple[Path | None, list[Path], bool]:
     games = get_games_paths()
     game_choices = list(games.keys())
 
@@ -278,20 +302,21 @@ def parse_args(argv: list[str]) -> tuple[Path, list[Path], bool]:
     parser.add_argument(
         "-d", "--discovery", action="store_true", help="Discover and list aircraft models in the simulator"
     )
-    parser.add_argument("sim", help="Simulator short name or path")
+    parser.add_argument(
+        "-s", "--sim", default=None, help="Simulator short name or path (optional, defaults to all compatible)"
+    )
     parser.add_argument("files", nargs="*", help="Livery files (.ptp) to process")
     args = parser.parse_args(argv[1:])
 
-    # Resolve game path
-    game_path = games.get(args.sim.lower())
-    if not game_path:
-        game_path = Path(args.sim)
-
-    if not game_path.is_dir():
-        parser.error(f"Invalid simulator name/path: {game_path}\nFound simulators:\n" + "\n".join(game_choices))
-
     # Handle discovery mode
     if args.discovery:
+        if not args.sim:
+            parser.error("--discovery requires --sim argument")
+        game_path = games.get(args.sim.lower())
+        if not game_path:
+            game_path = Path(args.sim)
+        if not game_path.is_dir():
+            parser.error(f"Invalid simulator name/path: {game_path}\nFound simulators:\n" + "\n".join(game_choices))
         models = list(discover_aircraft_in_sim(game_path, True))
         print(f"Found inside '{game_path}' models:")
         print(*models, sep="\n")
@@ -301,7 +326,6 @@ def parse_args(argv: list[str]) -> tuple[Path, list[Path], bool]:
     file_paths = []
     for arg in args.files:
         livery_path = Path(arg).resolve()
-
         if livery_path.suffix.lower() != ".ptp":
             print(f"Warning: Wrong extension for file {livery_path}")
         if not livery_path.is_file():
@@ -309,14 +333,26 @@ def parse_args(argv: list[str]) -> tuple[Path, list[Path], bool]:
         else:
             file_paths.append(livery_path)
 
+    if not file_paths:
+        parser.error("No valid .ptp files provided")
+
+    # Resolve game path(s)
+    game_path = None
+    if args.sim:
+        game_path = games.get(args.sim.lower())
+        if not game_path:
+            game_path = Path(args.sim)
+        if not game_path.is_dir():
+            parser.error(f"Invalid simulator name/path: {game_path}\nFound simulators:\n" + "\n".join(game_choices))
+
     return game_path, file_paths, args.dry_run
 
 
 if __name__ == "__main__":
     ptp = _find_ptp()
     if not ptp:
-        print("Error: ptp_converter.exe not found.")
-        print(f"Install PMDG Operations Center 3 or put ptp_converter.exe in '{Path('./').resolve()}' folder.")
+        print("Error: ptp-batch-installer.exe not found.")
+        print(f"Install PMDG Operations Center 3 or put ptp-batch-installer.exe in '{Path('./').resolve()}' folder.")
         sys.exit(1)
 
     game_path, file_paths, dry_run = parse_args(sys.argv)
@@ -324,18 +360,33 @@ if __name__ == "__main__":
     if dry_run:
         print("Info: Dry Run\n")
 
-    models = list(discover_aircraft_in_sim(game_path, False))
+    # If no game specified, find all games with compatible aircraft
+    games_to_process = {}
+    if game_path is None:
+        all_games = get_games_paths()
+        for game, path in all_games.items():
+            models = list(discover_aircraft_in_sim(path, False))
+            if models:
+                games_to_process[game] = (path, models)
+        if not games_to_process:
+            print("Error: No simulators with PMDG aircraft found.")
+            sys.exit(1)
+    else:
+        models = list(discover_aircraft_in_sim(game_path, False))
+        games_to_process[game_path.name] = (game_path, models)
 
-    for file_path in file_paths:
-        try:
-            extract_and_install_ptp_livery(ptp, game_path, file_path, models, dry_run)
-        except subprocess.CalledProcessError as e:
-            if "PMDG OC3 PTP CLI Converter Tool" in e.stdout:
-                print("Error: Unknown error in PMDG OC3 PTP CLI Converter Tool.")
-                print("Perhaps you need older ptp_converter.exe version.\nExiting")
-            else:
-                print(f"Error: Process failed (exit {e.returncode}): {e.stderr or e.stdout}")
-        except ValueError as e:
-            print(e)
+    # Process liveries for each game
+    for game_name, (path, models) in games_to_process.items():
+        print(f"\nProcessing {game_name}...")
+        for file_path in file_paths:
+            try:
+                extract_and_install_ptp_livery(ptp, path, file_path, models, dry_run)
+            except subprocess.CalledProcessError as e:
+                if "PMDG OC3 PTP CLI Converter Tool" in e.stdout:
+                    print("Error: Unknown error in PMDG OC3 PTP CLI Converter Tool.")
+                    print("Perhaps you need older ptp-batch-installer.exe version.\nExiting")
+                else:
+                    print(f"Error: Process failed (exit {e.returncode}): {e.stderr or e.stdout}")
+            except ValueError as e:
+                print(e)
 # TODO: add unziping
-# TODO: check if livery already installed

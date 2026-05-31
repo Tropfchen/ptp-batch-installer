@@ -1,7 +1,7 @@
 [project]
 requires-python = ">= 3.7"
-version = "0.1.0"
-name = "ptp_converter"
+version = "0.2.0"
+name = "ptp-batch-installer"
 
 [tool.ruff.lint]
 preview = true
@@ -9,3 +9,7 @@ select = ["E4", "E7", "E9", "F", "B", "Q", "N", "I", "C4", "ICN", "PIE", "RET", 
 
 [tool.ruff]
 line-length = 120
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
