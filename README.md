@@ -35,4 +35,5 @@ No external dependencies required.
 ## Issues:
 
 OC3 3.0.281 (May 2026) includes a damaged `ptp-converter.exe`. The only solution is to install an older OC3 version and back up `ptp-converter.exe` from `%appdata%\PMDG`.
+
 Alternatively, you can extract a working `ptp-converter.exe` from other PTP projects that include it (for example, Doguer's "PTP and ZIP Converter").
