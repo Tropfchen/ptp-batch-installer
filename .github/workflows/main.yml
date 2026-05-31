@@ -29,7 +29,10 @@ jobs:
 
       - name: Build executable with PyInstaller
         run: |
-          pyinstaller --onefile --name ptp-batch-installer main.py
+          pyinstaller --onefile --name ptp-batch-installer  --clean --noconfirm main.py
+
+      - name: List files (Debugging)
+        run: ls -R
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
@@ -39,3 +42,5 @@ jobs:
           name: Release ${{ github.event.inputs.version }}
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
